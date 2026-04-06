@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { PRODUCT_UNITS } from "../utils/inventory.js";
+import { PRODUCT_GENDERS, PRODUCT_UNITS } from "../utils/inventory.js";
 
 const productVariantSchema = new mongoose.Schema(
   {
@@ -28,6 +28,7 @@ const productSchema = new mongoose.Schema(
     debtAmount: { type: Number, required: true, min: 0, default: 0 },
     quantity: { type: Number, required: true, min: 0, default: 0 },
     unit: { type: String, enum: PRODUCT_UNITS, required: true },
+    gender: { type: String, enum: PRODUCT_GENDERS, default: "" },
     sizeOptions: { type: [String], default: [] },
     colorOptions: { type: [String], default: [] },
     variantStocks: { type: [productVariantSchema], default: [] },

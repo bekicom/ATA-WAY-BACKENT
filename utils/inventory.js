@@ -1,6 +1,7 @@
 export const PRODUCT_UNITS = ["dona", "kg", "blok", "pachka", "qop", "razmer"];
 export const PAYMENT_TYPES = ["naqd", "qarz", "qisman"];
 export const PRICING_MODES = ["keep_old", "replace_all", "average"];
+export const PRODUCT_GENDERS = ["", "qiz_bola", "ogil_bola"];
 
 export function roundMoney(value) {
   return Math.round(Number(value || 0) * 100) / 100;
@@ -87,6 +88,7 @@ export function parseProductPayload(body, usdRate) {
   const unit = String(body?.unit || "").trim().toLowerCase();
   const paymentType = String(body?.paymentType || "naqd").trim().toLowerCase();
   const priceCurrency = String(body?.priceCurrency || "uzs").trim().toLowerCase();
+  const gender = String(body?.gender || "").trim().toLowerCase();
   const sizeOptions = normalizeStringArray(body?.sizeOptions);
   const colorOptions = normalizeStringArray(body?.colorOptions);
   const variantStocks = normalizeVariantStocks(body?.variantStocks);
@@ -122,6 +124,7 @@ export function parseProductPayload(body, usdRate) {
     priceCurrency,
     usdRateUsed: Number(usdRate || 0),
     paymentType,
+    gender,
     paidAmount: Number.isFinite(paidAmount) ? paidAmount : 0,
     debtAmount: Math.max(0, totalPurchaseCost - (Number.isFinite(paidAmount) ? paidAmount : 0)),
     totalPurchaseCost,
@@ -143,6 +146,7 @@ export function validateProductPayload(payload) {
   if (!PRODUCT_UNITS.includes(payload.unit)) return "Birlik noto'g'ri";
   if (!["uzs", "usd"].includes(payload.priceCurrency)) return "Valyuta noto'g'ri";
   if (!PAYMENT_TYPES.includes(payload.paymentType)) return "To'lov turi noto'g'ri";
+  if (!PRODUCT_GENDERS.includes(payload.gender)) return "Jinsi noto'g'ri";
   if (
     [payload.purchasePrice, payload.retailPrice, payload.wholesalePrice, payload.quantity].some(
       (value) => Number.isNaN(value) || value < 0,
