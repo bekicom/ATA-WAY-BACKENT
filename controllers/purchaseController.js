@@ -30,7 +30,7 @@ export const listPurchases = asyncHandler(async (req, res) => {
 
   const purchases = await Purchase.find(query)
     .populate({ path: "supplierId", select: "name code" })
-    .populate({ path: "productId", select: "name model barcode" })
+    .populate({ path: "productId", select: "name code barcode" })
     .sort({ purchasedAt: -1, createdAt: -1 })
     .lean();
 

@@ -13,7 +13,7 @@ const productVariantSchema = new mongoose.Schema(
 const productSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    model: { type: String, default: "", trim: true },
+    code: { type: String, required: true, trim: true },
     barcode: { type: String, required: true, trim: true, unique: true },
     categoryId: { type: mongoose.Schema.Types.ObjectId, ref: "Category", required: true },
     supplierId: { type: mongoose.Schema.Types.ObjectId, ref: "Supplier", required: true },
@@ -43,6 +43,6 @@ const productSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-productSchema.index({ name: 1, model: 1, categoryId: 1 }, { unique: true });
+productSchema.index({ code: 1 }, { unique: true, sparse: true });
 
 export const Product = mongoose.model("Product", productSchema);

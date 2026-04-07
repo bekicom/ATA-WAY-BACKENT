@@ -3,6 +3,16 @@ export const PAYMENT_TYPES = ["naqd", "qarz", "qisman"];
 export const PRICING_MODES = ["keep_old", "replace_all", "average"];
 export const PRODUCT_GENDERS = ["", "qiz_bola", "ogil_bola"];
 
+export function normalizeProductUnit(value) {
+  const unit = String(value || "").trim().toLowerCase();
+  if (unit === "razmer") return "dona";
+  return unit;
+}
+
+export function isVariantProductUnit(value) {
+  return normalizeProductUnit(value) === "dona";
+}
+
 export function roundMoney(value) {
   return Math.round(Number(value || 0) * 100) / 100;
 }
@@ -13,6 +23,10 @@ export function escapeRegex(value) {
 
 export function normalizeBarcode(value) {
   return String(value || "").replace(/\s+/g, "").trim();
+}
+
+export function normalizeProductCode(value) {
+  return String(value || "").replace(/\D/g, "").slice(0, 4);
 }
 
 export function normalizeStringArray(value) {
@@ -85,7 +99,7 @@ export function mergeVariantStocks(currentStocks, incomingStocks) {
 }
 
 export function parseProductPayload(body, usdRate) {
-  const unit = String(body?.unit || "").trim().toLowerCase();
+  const unit = normalizeProductUnit(body?.unit);
   const paymentType = String(body?.paymentType || "naqd").trim().toLowerCase();
   const priceCurrency = String(body?.priceCurrency || "uzs").trim().toLowerCase();
   const gender = String(body?.gender || "").trim().toLowerCase();
@@ -94,7 +108,7 @@ export function parseProductPayload(body, usdRate) {
   const variantStocks = normalizeVariantStocks(body?.variantStocks);
 
   const quantity =
-    unit === "razmer"
+    isVariantProductUnit(unit)
       ? variantStocks.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
       : Number(body?.quantity || 0);
 
@@ -112,7 +126,7 @@ export function parseProductPayload(body, usdRate) {
 
   return {
     name: String(body?.name || "").trim(),
-    model: String(body?.model || "").trim(),
+    code: normalizeProductCode(body?.code),
     barcode: normalizeBarcode(body?.barcode),
     categoryId: String(body?.categoryId || "").trim(),
     supplierId: String(body?.supplierId || "").trim(),
@@ -157,7 +171,7 @@ export function validateProductPayload(payload) {
   if (payload.paidAmount > payload.totalPurchaseCost) {
     return "To'langan summa umumiy summadan katta bo'lmasin";
   }
-  if (payload.unit === "razmer") {
+  if (isVariantProductUnit(payload.unit)) {
     if (!payload.sizeOptions.length) return "Kamida bitta razmer kiriting";
     if (!payload.colorOptions.length) return "Kamida bitta rang kiriting";
     if (!payload.variantStocks.length) return "Razmer-rang qoldig'ini kiriting";

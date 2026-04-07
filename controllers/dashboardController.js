@@ -14,7 +14,7 @@ export const getOverview = asyncHandler(async (_req, res) => {
     ]);
 
   const lowStockProducts = await Product.find({ quantity: { $lte: 5 } })
-    .select("name model barcode quantity unit")
+    .select("name code barcode quantity unit")
     .sort({ quantity: 1, updatedAt: -1 })
     .limit(10)
     .lean();

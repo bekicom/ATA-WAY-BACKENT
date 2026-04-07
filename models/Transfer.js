@@ -1,5 +1,14 @@
 import mongoose from "mongoose";
 
+const transferVariantSchema = new mongoose.Schema(
+  {
+    size: { type: String, required: true, trim: true },
+    color: { type: String, required: true, trim: true },
+    quantity: { type: Number, required: true, min: 1 },
+  },
+  { _id: false },
+);
+
 const transferItemSchema = new mongoose.Schema(
   {
     productId: {
@@ -12,6 +21,7 @@ const transferItemSchema = new mongoose.Schema(
     barcode: { type: String, required: true, trim: true },
     unit: { type: String, required: true, trim: true },
     quantity: { type: Number, required: true, min: 1 },
+    variants: { type: [transferVariantSchema], default: [] },
     purchasePrice: { type: Number, required: true, min: 0, default: 0 },
     totalValue: { type: Number, required: true, min: 0, default: 0 },
   },

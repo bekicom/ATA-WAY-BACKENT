@@ -4,29 +4,40 @@ import { Transfer } from "../models/Transfer.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { generateCode, roundMoney } from "../utils/inventory.js";
 
-function allocateVariantStocks(currentStocks, requiredQty) {
-  let remaining = Number(requiredQty || 0);
-  const nextStocks = [];
+function normalizeRequestedVariants(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => ({
+      size: String(item?.size || "").trim(),
+      color: String(item?.color || "").trim(),
+      quantity: Number(item?.quantity || 0),
+    }))
+    .filter((item) => item.size && item.color && Number.isFinite(item.quantity) && item.quantity > 0);
+}
 
-  for (const item of currentStocks || []) {
-    const currentQty = Number(item.quantity || 0);
-    if (remaining <= 0) {
-      nextStocks.push(item);
-      continue;
+function applyRequestedVariants(currentStocks, requestedStocks) {
+  const bucket = new Map(
+    (currentStocks || []).map((item) => [`${item.size}::${item.color}`, {
+      size: item.size,
+      color: item.color,
+      quantity: Number(item.quantity || 0),
+    }]),
+  );
+
+  for (const requested of requestedStocks || []) {
+    const key = `${requested.size}::${requested.color}`;
+    const current = bucket.get(key);
+    if (!current) {
+      return { error: `${requested.size} / ${requested.color} varianti topilmadi` };
     }
-
-    const used = Math.min(currentQty, remaining);
-    remaining -= used;
-    nextStocks.push({
-      ...item,
-      quantity: currentQty - used,
-    });
+    if (current.quantity < requested.quantity) {
+      return { error: `${requested.size} / ${requested.color} variant qoldig'i yetarli emas` };
+    }
+    current.quantity -= requested.quantity;
+    bucket.set(key, current);
   }
 
-  return {
-    nextStocks,
-    remaining,
-  };
+  return { nextStocks: [...bucket.values()].filter((item) => item.quantity > 0) };
 }
 
 export const listTransfers = asyncHandler(async (req, res) => {
@@ -74,9 +85,12 @@ export const createTransfer = asyncHandler(async (req, res) => {
   const normalizedItems = items.map((item) => ({
     productId: String(item?.productId || "").trim(),
     quantity: Number(item?.quantity || 0),
+    variants: normalizeRequestedVariants(item?.variantStocks || item?.variants),
   }));
 
-  if (normalizedItems.some((item) => !item.productId || !Number.isFinite(item.quantity) || item.quantity <= 0)) {
+  if (
+    normalizedItems.some((item) => !item.productId || (!item.variants.length && (!Number.isFinite(item.quantity) || item.quantity <= 0)))
+  ) {
     return res.status(400).json({ message: "Transfer miqdorlari noto'g'ri" });
   }
 
@@ -94,8 +108,15 @@ export const createTransfer = asyncHandler(async (req, res) => {
 
   for (const item of normalizedItems) {
     const product = productMap.get(item.productId);
-    const requestedQty = Number(item.quantity);
+    const isVariantProduct = Array.isArray(product.variantStocks) && product.variantStocks.length > 0;
+    const requestedQty = isVariantProduct
+      ? item.variants.reduce((sum, variant) => sum + Number(variant.quantity || 0), 0)
+      : Number(item.quantity);
     const currentQty = Number(product.quantity || 0);
+
+    if (!Number.isFinite(requestedQty) || requestedQty <= 0) {
+      return res.status(400).json({ message: `${product.name} uchun miqdor noto'g'ri` });
+    }
 
     if (requestedQty > currentQty) {
       return res.status(400).json({
@@ -105,12 +126,16 @@ export const createTransfer = asyncHandler(async (req, res) => {
 
     product.quantity = currentQty - requestedQty;
 
-    if (product.unit === "razmer") {
-      const allocation = allocateVariantStocks(product.variantStocks, requestedQty);
-      if (allocation.remaining > 0) {
+    if (isVariantProduct) {
+      if (!item.variants.length) {
         return res.status(400).json({
-          message: `${product.name} variant qoldig'i yetarli emas`,
+          message: `${product.name} uchun variantlarni kiriting`,
         });
+      }
+
+      const allocation = applyRequestedVariants(product.variantStocks, item.variants);
+      if (allocation.error) {
+        return res.status(400).json({ message: allocation.error });
       }
       product.variantStocks = allocation.nextStocks;
     }
@@ -124,10 +149,11 @@ export const createTransfer = asyncHandler(async (req, res) => {
     transferItems.push({
       productId: product._id,
       name: product.name,
-      model: product.model,
+      model: product.code,
       barcode: product.barcode,
       unit: product.unit,
       quantity: requestedQty,
+      variants: item.variants,
       purchasePrice: Number(product.purchasePrice || 0),
       totalValue: itemTotalValue,
     });

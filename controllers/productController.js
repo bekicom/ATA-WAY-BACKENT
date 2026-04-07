@@ -6,8 +6,10 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import {
   convertToUzs,
   generateCode,
+  isVariantProductUnit,
   mergeVariantStocks,
   normalizeBarcode,
+  normalizeProductCode,
   parseProductPayload,
   PRICING_MODES,
   roundMoney,
@@ -15,6 +17,41 @@ import {
 } from "../utils/inventory.js";
 
 const DEFAULT_USD_RATE = Number(process.env.DEFAULT_USD_RATE || 12600);
+
+async function generateUniqueProductCode(excludeId = null) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const code = String(Math.floor(1000 + Math.random() * 9000));
+    const exists = await Product.exists({
+      code,
+      ...(excludeId ? { _id: { $ne: excludeId } } : {}),
+    });
+    if (!exists) return code;
+  }
+
+  throw new Error("Mahsulot kodi yaratib bo'lmadi");
+}
+
+async function resolveProductCode(preferredCode, fallbackCode = "", excludeId = null) {
+  const normalizedPreferred = normalizeProductCode(preferredCode);
+  if (normalizedPreferred.length === 4) {
+    const preferredExists = await Product.exists({
+      code: normalizedPreferred,
+      ...(excludeId ? { _id: { $ne: excludeId } } : {}),
+    });
+    if (!preferredExists) return normalizedPreferred;
+  }
+
+  const normalizedFallback = normalizeProductCode(fallbackCode);
+  if (normalizedFallback.length === 4) {
+    const fallbackExists = await Product.exists({
+      code: normalizedFallback,
+      ...(excludeId ? { _id: { $ne: excludeId } } : {}),
+    });
+    if (!fallbackExists) return normalizedFallback;
+  }
+
+  return generateUniqueProductCode(excludeId);
+}
 
 async function ensureRelations(categoryId, supplierId) {
   const [categoryExists, supplierExists] = await Promise.all([
@@ -62,8 +99,10 @@ export const listProducts = asyncHandler(async (req, res) => {
   if (supplierId) query.supplierId = supplierId;
   if (search) {
     const barcode = normalizeBarcode(search);
+    const code = normalizeProductCode(search);
     query.$or = [
       { barcode },
+      { code },
       { name: { $regex: search, $options: "i" } },
       { model: { $regex: search, $options: "i" } },
     ];
@@ -107,22 +146,16 @@ export const createProduct = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: relationError });
   }
 
-  const duplicateByIdentity = await Product.exists({
-    name: payload.name,
-    model: payload.model,
-    categoryId: payload.categoryId,
-  });
-  if (duplicateByIdentity) {
-    return res.status(409).json({ message: "Bu mahsulot allaqachon mavjud" });
-  }
-
   const barcodeResult = await ensureUniqueBarcode(payload.barcode);
   if (barcodeResult.error) {
     return res.status(409).json({ message: barcodeResult.error });
   }
 
+  const code = await resolveProductCode(payload.code);
+
   const product = await Product.create({
     ...payload,
+    code,
     barcode: barcodeResult.barcode,
     lastRestockedAt: new Date(),
   });
@@ -133,7 +166,7 @@ export const createProduct = asyncHandler(async (req, res) => {
     supplierId: product.supplierId,
     productId: product._id,
     productName: product.name,
-    productModel: product.model,
+    productModel: product.code,
     quantity: product.quantity,
     unit: product.unit,
     variants: product.variantStocks,
@@ -167,25 +200,23 @@ export const updateProduct = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: relationError });
   }
 
-  const duplicateByIdentity = await Product.exists({
-    _id: { $ne: req.params.id },
-    name: payload.name,
-    model: payload.model,
-    categoryId: payload.categoryId,
-  });
-  if (duplicateByIdentity) {
-    return res.status(409).json({ message: "Bu mahsulot allaqachon mavjud" });
-  }
-
   const barcodeResult = await ensureUniqueBarcode(payload.barcode, req.params.id);
   if (barcodeResult.error) {
     return res.status(409).json({ message: barcodeResult.error });
   }
 
+  const currentProduct = await Product.findById(req.params.id);
+  if (!currentProduct) {
+    return res.status(404).json({ message: "Mahsulot topilmadi" });
+  }
+
+  const code = await resolveProductCode(payload.code, currentProduct.code, req.params.id);
+
   const product = await Product.findByIdAndUpdate(
     req.params.id,
     {
       ...payload,
+      code,
       barcode: barcodeResult.barcode,
     },
     { new: true, runValidators: true },
@@ -219,10 +250,10 @@ export const restockProduct = asyncHandler(async (req, res) => {
   const wholesalePriceNew = convertToUzs(req.body?.wholesalePrice || 0, priceCurrency, DEFAULT_USD_RATE);
   const piecePriceNew = convertToUzs(req.body?.piecePrice || 0, priceCurrency, DEFAULT_USD_RATE);
   const rawPaidAmount = convertToUzs(req.body?.paidAmount || 0, priceCurrency, DEFAULT_USD_RATE);
-  const variantStocks = product.unit === "razmer" ? req.body?.variantStocks || [] : [];
-  const normalizedVariants = product.unit === "razmer" ? mergeVariantStocks([], variantStocks) : [];
+  const variantStocks = isVariantProductUnit(product.unit) ? req.body?.variantStocks || [] : [];
+  const normalizedVariants = isVariantProductUnit(product.unit) ? mergeVariantStocks([], variantStocks) : [];
   const incomingQuantity =
-    product.unit === "razmer"
+    isVariantProductUnit(product.unit)
       ? normalizedVariants.reduce((sum, item) => sum + Number(item.quantity || 0), 0)
       : quantity;
 
@@ -287,7 +318,7 @@ export const restockProduct = asyncHandler(async (req, res) => {
     }
   }
 
-  if (product.unit === "razmer") {
+  if (isVariantProductUnit(product.unit)) {
     product.variantStocks = mergeVariantStocks(product.variantStocks, normalizedVariants);
   }
 
@@ -299,7 +330,7 @@ export const restockProduct = asyncHandler(async (req, res) => {
     supplierId,
     productId: product._id,
     productName: product.name,
-    productModel: product.model,
+    productModel: product.code,
     quantity: incomingQuantity,
     unit: product.unit,
     variants: normalizedVariants,

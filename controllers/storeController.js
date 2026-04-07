@@ -42,7 +42,7 @@ export const getStoreById = asyncHandler(async (req, res) => {
       const current = inventoryMap.get(key) || {
         productId: item.productId || null,
         name: item.name,
-        model: item.model || "",
+        code: item.code || item.model || "",
         barcode: item.barcode || "",
         unit: item.unit || "",
         quantity: 0,
