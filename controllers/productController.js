@@ -209,6 +209,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
   if (!currentProduct) {
     return res.status(404).json({ message: "Mahsulot topilmadi" });
   }
+  const previousQuantity = Number(currentProduct.quantity || 0);
 
   const code = await resolveProductCode(payload.code, currentProduct.code, req.params.id);
 
@@ -224,6 +225,35 @@ export const updateProduct = asyncHandler(async (req, res) => {
 
   if (!product) {
     return res.status(404).json({ message: "Mahsulot topilmadi" });
+  }
+
+  const nextQuantity = Number(product.quantity || 0);
+  const quantityDelta = roundMoney(nextQuantity - previousQuantity);
+  if (quantityDelta !== 0) {
+    await Purchase.create({
+      entryType: "opening_balance",
+      invoiceNumber: generateCode("ADJ"),
+      supplierId: product.supplierId,
+      productId: product._id,
+      productName: product.name,
+      productModel: product.code,
+      quantity: quantityDelta,
+      unit: product.unit,
+      variants: product.variantStocks,
+      purchasePrice: product.purchasePrice,
+      priceCurrency: product.priceCurrency,
+      usdRateUsed: DEFAULT_USD_RATE,
+      totalCost: 0,
+      paidAmount: 0,
+      debtAmount: 0,
+      paymentType: "naqd",
+      pricingMode: "keep_old",
+      retailPrice: product.retailPrice,
+      wholesalePrice: product.wholesalePrice,
+      piecePrice: product.piecePrice,
+      note: "edit orqali qoldiq tuzatildi",
+      createdBy: req.user.username,
+    });
   }
 
   return res.json({ product });
