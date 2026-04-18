@@ -45,11 +45,13 @@ export const getOverview = asyncHandler(async (_req, res) => {
 
       if (!acc.byCategory[categoryName]) {
         acc.byCategory[categoryName] = {
+          categoryId: typeof item.categoryId === "object" ? String(item.categoryId?._id || "") : "",
           name: categoryName,
           productCount: 0,
           quantity: 0,
           purchaseValue: 0,
           retailValue: 0,
+          products: [],
         };
       }
 
@@ -57,6 +59,15 @@ export const getOverview = asyncHandler(async (_req, res) => {
       acc.byCategory[categoryName].quantity += quantity;
       acc.byCategory[categoryName].purchaseValue += purchaseValue;
       acc.byCategory[categoryName].retailValue += retailValue;
+      acc.byCategory[categoryName].products.push({
+        _id: String(item._id),
+        name: item.name,
+        code: item.code,
+        quantity,
+        unit: item.unit,
+        purchasePrice: item.purchasePrice,
+        retailPrice: item.retailPrice,
+      });
 
       return acc;
     },

@@ -67,7 +67,8 @@ export function generateCode(prefix) {
 }
 
 export function supportsPieceSale(unit) {
-  return unit === "qop" || unit === "pachka";
+  const normalizedUnit = normalizeProductUnit(unit);
+  return normalizedUnit === "qop" || normalizedUnit === "pachka";
 }
 
 export function mergeVariantStocks(currentStocks, incomingStocks) {
