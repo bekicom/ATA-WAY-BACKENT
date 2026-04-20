@@ -89,6 +89,40 @@ async function ensureUniqueBarcode(barcode, excludeId = null) {
   return { barcode: normalized };
 }
 
+async function ensureUniqueBarcodeSet(primaryBarcode, barcodeAliases = [], excludeId = null) {
+  const primaryResult = await ensureUniqueBarcode(primaryBarcode, excludeId);
+  if (primaryResult.error) return primaryResult;
+
+  const aliasList = [...new Set((barcodeAliases || []).map((item) => normalizeBarcode(item)).filter(Boolean))];
+  const allCodes = [primaryResult.barcode, ...aliasList];
+  if (new Set(allCodes).size !== allCodes.length) {
+    return { error: "Shtixkodlar orasida bir xil qiymat bor" };
+  }
+
+  if (!aliasList.length) {
+    return { barcode: primaryResult.barcode, barcodeAliases: [] };
+  }
+
+  const duplicate = await Product.findOne({
+    _id: excludeId ? { $ne: excludeId } : { $exists: true },
+    $or: [
+      { barcode: { $in: allCodes } },
+      { barcodeAliases: { $in: allCodes } },
+    ],
+  })
+    .select("_id name barcode barcodeAliases")
+    .lean();
+
+  if (duplicate) {
+    return { error: "Kiritilgan shtixkodlardan biri allaqachon mavjud" };
+  }
+
+  return {
+    barcode: primaryResult.barcode,
+    barcodeAliases: aliasList,
+  };
+}
+
 export const listProducts = asyncHandler(async (req, res) => {
   const query = {};
   const search = String(req.query.q || "").trim();
@@ -102,6 +136,7 @@ export const listProducts = asyncHandler(async (req, res) => {
     const code = normalizeProductCode(search);
     query.$or = [
       { barcode },
+      { barcodeAliases: barcode },
       { code },
       { name: { $regex: search, $options: "i" } },
       { model: { $regex: search, $options: "i" } },
@@ -146,7 +181,7 @@ export const createProduct = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: relationError });
   }
 
-  const barcodeResult = await ensureUniqueBarcode(payload.barcode);
+  const barcodeResult = await ensureUniqueBarcodeSet(payload.barcode, payload.barcodeAliases);
   if (barcodeResult.error) {
     return res.status(409).json({ message: barcodeResult.error });
   }
@@ -157,6 +192,7 @@ export const createProduct = asyncHandler(async (req, res) => {
     ...payload,
     code,
     barcode: barcodeResult.barcode,
+    barcodeAliases: barcodeResult.barcodeAliases,
     lastRestockedAt: new Date(),
   });
 
@@ -200,7 +236,11 @@ export const updateProduct = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: relationError });
   }
 
-  const barcodeResult = await ensureUniqueBarcode(payload.barcode, req.params.id);
+  const barcodeResult = await ensureUniqueBarcodeSet(
+    payload.barcode,
+    payload.barcodeAliases,
+    req.params.id,
+  );
   if (barcodeResult.error) {
     return res.status(409).json({ message: barcodeResult.error });
   }
@@ -219,6 +259,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
       ...payload,
       code,
       barcode: barcodeResult.barcode,
+      barcodeAliases: barcodeResult.barcodeAliases,
     },
     { new: true, runValidators: true },
   );

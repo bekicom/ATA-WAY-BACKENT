@@ -25,6 +25,18 @@ export function normalizeBarcode(value) {
   return String(value || "").replace(/\s+/g, "").trim();
 }
 
+export function normalizeBarcodeList(value, primaryBarcode = "") {
+  const primary = normalizeBarcode(primaryBarcode);
+  if (!Array.isArray(value)) return [];
+  return [
+    ...new Set(
+      value
+        .map((item) => normalizeBarcode(item))
+        .filter((item) => item && item !== primary),
+    ),
+  ];
+}
+
 export function normalizeProductCode(value) {
   return String(value || "").replace(/\D/g, "").slice(0, 4);
 }
@@ -129,6 +141,7 @@ export function parseProductPayload(body, usdRate) {
     name: String(body?.name || "").trim(),
     code: normalizeProductCode(body?.code),
     barcode: normalizeBarcode(body?.barcode),
+    barcodeAliases: normalizeBarcodeList(body?.barcodeAliases, body?.barcode),
     categoryId: String(body?.categoryId || "").trim(),
     supplierId: String(body?.supplierId || "").trim(),
     purchasePrice,
