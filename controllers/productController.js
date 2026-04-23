@@ -1,6 +1,8 @@
 import { Category } from "../models/Category.js";
 import { Product } from "../models/Product.js";
 import { Purchase } from "../models/Purchase.js";
+import { Section } from "../models/Section.js";
+import { SectionAllocation } from "../models/SectionAllocation.js";
 import { Supplier } from "../models/Supplier.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import {
@@ -61,6 +63,15 @@ async function ensureRelations(categoryId, supplierId) {
 
   if (!categoryExists) return "Kategoriya topilmadi";
   if (!supplierExists) return "Yetkazib beruvchi topilmadi";
+  return null;
+}
+
+async function ensureSection(sectionId) {
+  const normalized = String(sectionId || "").trim();
+  if (!normalized) return "Bo'lim tanlang";
+
+  const exists = await Section.exists({ _id: normalized, isActive: true });
+  if (!exists) return "Bo'lim topilmadi";
   return null;
 }
 
@@ -170,6 +181,7 @@ export const getProductById = asyncHandler(async (req, res) => {
 });
 
 export const createProduct = asyncHandler(async (req, res) => {
+  const sectionId = String(req.body?.sectionId || "").trim();
   const payload = parseProductPayload(req.body, DEFAULT_USD_RATE);
   const invalid = validateProductPayload(payload);
   if (invalid) {
@@ -179,6 +191,11 @@ export const createProduct = asyncHandler(async (req, res) => {
   const relationError = await ensureRelations(payload.categoryId, payload.supplierId);
   if (relationError) {
     return res.status(400).json({ message: relationError });
+  }
+
+  const sectionError = await ensureSection(sectionId);
+  if (sectionError) {
+    return res.status(400).json({ message: sectionError });
   }
 
   const barcodeResult = await ensureUniqueBarcodeSet(payload.barcode, payload.barcodeAliases);
@@ -219,6 +236,12 @@ export const createProduct = asyncHandler(async (req, res) => {
     piecePrice: product.piecePrice,
     note: product.note,
     createdBy: req.user.username,
+  });
+
+  await SectionAllocation.create({
+    sectionId,
+    productId: product._id,
+    quantity: Number(product.quantity || 0),
   });
 
   return res.status(201).json({ product });

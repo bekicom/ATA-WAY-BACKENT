@@ -1,16 +1,20 @@
 import { Category } from "../models/Category.js";
 import { Product } from "../models/Product.js";
 import { Purchase } from "../models/Purchase.js";
+import { Section } from "../models/Section.js";
+import { SectionAllocation } from "../models/SectionAllocation.js";
 import { Supplier } from "../models/Supplier.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { roundMoney } from "../utils/inventory.js";
 
 export const getOverview = asyncHandler(async (_req, res) => {
-  const [productsCount, categoriesCount, suppliersCount, purchasesCount] =
+  const [productsCount, categoriesCount, suppliersCount, purchasesCount, sectionsCount] =
     await Promise.all([
       Product.countDocuments(),
       Category.countDocuments(),
       Supplier.countDocuments(),
       Purchase.countDocuments({ entryType: { $in: ["initial", "restock"] } }),
+      Section.countDocuments({ isActive: true }),
     ]);
 
   const lowStockProducts = await Product.find({ quantity: { $lte: 5 } })
@@ -83,12 +87,49 @@ export const getOverview = asyncHandler(async (_req, res) => {
     .sort((a, b) => b.purchaseValue - a.purchaseValue)
     .slice(0, 12);
 
+  const [sections, allocations] = await Promise.all([
+    Section.find({ isActive: true }).select("name").sort({ name: 1 }).lean(),
+    SectionAllocation.find().select("sectionId productId quantity").lean(),
+  ]);
+  const productValueMap = new Map(
+    stockProducts.map((item) => [
+      String(item._id),
+      {
+        purchasePrice: Number(item.purchasePrice || 0),
+        retailPrice: Number(item.retailPrice || 0),
+      },
+    ]),
+  );
+  const sectionRollup = new Map();
+  for (const section of sections) {
+    sectionRollup.set(String(section._id), {
+      sectionId: String(section._id),
+      name: section.name,
+      productCount: 0,
+      quantity: 0,
+      purchaseValue: 0,
+      retailValue: 0,
+    });
+  }
+  for (const row of allocations) {
+    const bucket = sectionRollup.get(String(row.sectionId));
+    if (!bucket) continue;
+    const values = productValueMap.get(String(row.productId));
+    const qty = Number(row.quantity || 0);
+    bucket.productCount += 1;
+    bucket.quantity = roundMoney(bucket.quantity + qty);
+    bucket.purchaseValue = roundMoney(bucket.purchaseValue + (qty * Number(values?.purchasePrice || 0)));
+    bucket.retailValue = roundMoney(bucket.retailValue + (qty * Number(values?.retailPrice || 0)));
+  }
+  const sectionInventory = [...sectionRollup.values()].sort((a, b) => b.purchaseValue - a.purchaseValue);
+
   return res.json({
     counts: {
       products: productsCount,
       categories: categoriesCount,
       suppliers: suppliersCount,
       purchases: purchasesCount,
+      sections: sectionsCount,
     },
     lowStockProducts,
     latestPurchases,
@@ -97,6 +138,7 @@ export const getOverview = asyncHandler(async (_req, res) => {
       totalRetailValue: stockSummary.totalRetailValue,
       totalQuantity: stockSummary.totalQuantity,
       categoryInventory,
+      sectionInventory,
     },
   });
 });

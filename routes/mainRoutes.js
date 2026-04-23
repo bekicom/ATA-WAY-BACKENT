@@ -39,6 +39,14 @@ import {
   updateStore,
 } from "../controllers/storeController.js";
 import {
+  createSection,
+  deleteSection,
+  getSectionAllocations,
+  listSections,
+  setSectionAllocations,
+  updateSection,
+} from "../controllers/sectionController.js";
+import {
   createTransfer,
   listTransfers,
 } from "../controllers/transferController.js";
@@ -66,6 +74,13 @@ router.get("/stores/:id", authMiddleware, getStoreById);
 router.post("/stores", authMiddleware, createStore);
 router.put("/stores/:id", authMiddleware, updateStore);
 router.delete("/stores/:id", authMiddleware, deleteStore);
+
+router.get("/sections", authMiddleware, listSections);
+router.post("/sections", authMiddleware, createSection);
+router.put("/sections/:id", authMiddleware, updateSection);
+router.delete("/sections/:id", authMiddleware, deleteSection);
+router.get("/sections/:id/allocations", authMiddleware, getSectionAllocations);
+router.put("/sections/:id/allocations", authMiddleware, setSectionAllocations);
 
 router.get("/products", authMiddleware, listProducts);
 router.get("/products/:id", authMiddleware, getProductById);
