@@ -17,8 +17,11 @@ import {
   updateProduct,
 } from "../controllers/productController.js";
 import {
+  createStockOut,
+  createStockOutBulk,
   getSupplierPurchaseReport,
   listPurchases,
+  listStockOuts,
 } from "../controllers/purchaseController.js";
 import {
   createSupplier,
@@ -73,6 +76,9 @@ router.delete("/products/:id", authMiddleware, deleteProduct);
 
 router.get("/purchases", authMiddleware, listPurchases);
 router.get("/purchases/supplier/:id", authMiddleware, getSupplierPurchaseReport);
+router.get("/stock-outs", authMiddleware, listStockOuts);
+router.post("/stock-outs", authMiddleware, createStockOut);
+router.post("/stock-outs/bulk", authMiddleware, createStockOutBulk);
 
 router.get("/dashboard/overview", authMiddleware, getOverview);
 

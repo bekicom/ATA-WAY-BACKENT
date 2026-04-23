@@ -12,7 +12,7 @@ const purchaseVariantSchema = new mongoose.Schema(
 
 const purchaseSchema = new mongoose.Schema(
   {
-    entryType: { type: String, enum: ["initial", "restock", "opening_balance"], required: true },
+    entryType: { type: String, enum: ["initial", "restock", "opening_balance", "stock_out"], required: true },
     invoiceNumber: { type: String, required: true, trim: true, unique: true },
     supplierId: { type: mongoose.Schema.Types.ObjectId, ref: "Supplier", required: true },
     productId: { type: mongoose.Schema.Types.ObjectId, ref: "Product", default: null },
