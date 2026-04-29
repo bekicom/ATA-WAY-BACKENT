@@ -180,6 +180,48 @@ export const getProductById = asyncHandler(async (req, res) => {
   return res.json({ product, purchases });
 });
 
+export const acceptStoreReturn = asyncHandler(async (req, res) => {
+  const quantity = Number(req.body?.quantity || 0);
+  const productCode = normalizeProductCode(req.body?.productCode);
+  const barcode = normalizeBarcode(req.body?.barcode);
+  const note = String(req.body?.note || "").trim();
+
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    return res.status(400).json({ message: "Qabul soni 0 dan katta bo'lishi kerak" });
+  }
+  if (!productCode && !barcode) {
+    return res.status(400).json({ message: "Mahsulot kodi yoki shtixkodi kerak" });
+  }
+
+  const query = productCode
+    ? { code: productCode }
+    : { $or: [{ barcode }, { barcodeAliases: barcode }] };
+
+  const product = await Product.findOne(query);
+  if (!product) {
+    return res.status(404).json({ message: "Mahsulot topilmadi" });
+  }
+
+  const currentQty = Number(product.quantity || 0);
+  const nextQty = roundMoney(currentQty + quantity);
+  product.quantity = nextQty;
+  product.lastRestockedAt = new Date();
+  await product.save();
+
+  return res.json({
+    ok: true,
+    product: {
+      id: product._id,
+      name: product.name,
+      code: product.code,
+      barcode: product.barcode,
+      quantity: product.quantity,
+      unit: product.unit
+    },
+    note
+  });
+});
+
 export const createProduct = asyncHandler(async (req, res) => {
   const sectionId = String(req.body?.sectionId || "").trim();
   const payload = parseProductPayload(req.body, DEFAULT_USD_RATE);

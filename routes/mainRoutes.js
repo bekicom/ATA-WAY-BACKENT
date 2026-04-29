@@ -9,6 +9,7 @@ import {
 } from "../controllers/categoryController.js";
 import { getOverview } from "../controllers/dashboardController.js";
 import {
+  acceptStoreReturn,
   createProduct,
   deleteProduct,
   getProductById,
@@ -85,6 +86,7 @@ router.put("/sections/:id/allocations", authMiddleware, setSectionAllocations);
 router.get("/products", authMiddleware, listProducts);
 router.get("/products/:id", authMiddleware, getProductById);
 router.post("/products", authMiddleware, createProduct);
+router.post("/products/accept-store-return", authMiddleware, acceptStoreReturn);
 router.post("/products/:id/restock", authMiddleware, restockProduct);
 router.put("/products/:id", authMiddleware, updateProduct);
 router.delete("/products/:id", authMiddleware, deleteProduct);
