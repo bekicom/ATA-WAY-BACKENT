@@ -3,6 +3,7 @@ import { Product } from "../models/Product.js";
 import { Purchase } from "../models/Purchase.js";
 import { Section } from "../models/Section.js";
 import { SectionAllocation } from "../models/SectionAllocation.js";
+import { StoreReturnRequest } from "../models/StoreReturnRequest.js";
 import { Supplier } from "../models/Supplier.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import {
@@ -19,6 +20,11 @@ import {
 } from "../utils/inventory.js";
 
 const DEFAULT_USD_RATE = Number(process.env.DEFAULT_USD_RATE || 12600);
+
+function normalizeReturnStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  return ["pending", "approved", "rejected"].includes(status) ? status : "";
+}
 
 async function generateUniqueProductCode(excludeId = null) {
   for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -220,6 +226,169 @@ export const acceptStoreReturn = asyncHandler(async (req, res) => {
     },
     note
   });
+});
+
+export const listStoreReturns = asyncHandler(async (req, res) => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
+  const status = normalizeReturnStatus(req.query.status);
+  const productId = String(req.query.productId || "").trim();
+
+  const query = {};
+  if (status) query.status = status;
+  if (productId) query.productId = productId;
+
+  const [items, total, summaryAgg] = await Promise.all([
+    StoreReturnRequest.find(query)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .populate({ path: "productId", select: "name barcode quantity unit code" })
+      .lean(),
+    StoreReturnRequest.countDocuments(query),
+    StoreReturnRequest.aggregate([
+      {
+        $group: {
+          _id: "$status",
+          totalRequested: { $sum: "$requestedQty" },
+          totalApproved: { $sum: "$approvedQty" },
+          count: { $sum: 1 },
+        },
+      },
+    ]),
+  ]);
+
+  const summary = {
+    pendingCount: 0,
+    approvedCount: 0,
+    rejectedCount: 0,
+    totalRequested: 0,
+    totalApproved: 0,
+  };
+  for (const row of summaryAgg) {
+    const key = String(row?._id || "");
+    if (key === "pending") summary.pendingCount = Number(row?.count || 0);
+    if (key === "approved") summary.approvedCount = Number(row?.count || 0);
+    if (key === "rejected") summary.rejectedCount = Number(row?.count || 0);
+    summary.totalRequested = roundMoney(summary.totalRequested + Number(row?.totalRequested || 0));
+    summary.totalApproved = roundMoney(summary.totalApproved + Number(row?.totalApproved || 0));
+  }
+
+  return res.json({ requests: items, total, page, limit, summary });
+});
+
+export const createExternalStoreReturn = asyncHandler(async (req, res) => {
+  const productCode = normalizeProductCode(req.body?.productCode);
+  const barcode = normalizeBarcode(req.body?.barcode);
+  const qty = roundMoney(Number(req.body?.quantity));
+  const requestNote = String(req.body?.requestNote || req.body?.note || "").trim();
+  const sourceRequestId = String(req.body?.sourceRequestId || "").trim();
+  const sourceStoreCode = String(req.body?.sourceStoreCode || "").trim();
+  const sourceStoreName = String(req.body?.sourceStoreName || "").trim();
+  const requestedByUsername = String(req.body?.requestedByUsername || req.user?.username || "kassa").trim();
+
+  if (!Number.isFinite(qty) || qty <= 0) {
+    return res.status(400).json({ message: "Qaytarish soni 0 dan katta bo'lishi kerak" });
+  }
+  if (!productCode && !barcode) {
+    return res.status(400).json({ message: "Mahsulot kodi yoki shtixkodi kerak" });
+  }
+
+  const product = await Product.findOne(
+    productCode
+      ? { code: productCode }
+      : { $or: [{ barcode }, { barcodeAliases: barcode }] },
+  );
+  if (!product) {
+    return res.status(404).json({ message: "Markaziy omborda mos mahsulot topilmadi" });
+  }
+
+  const alreadyExists = sourceRequestId
+    ? await StoreReturnRequest.findOne({
+        sourceRequestId,
+        sourceStoreCode,
+        status: "pending",
+      })
+    : null;
+  if (alreadyExists) {
+    return res.status(200).json({ request: alreadyExists, duplicated: true });
+  }
+
+  const sourceInfo = [sourceStoreCode, sourceStoreName].filter(Boolean).join(" / ");
+  const notePrefix = sourceInfo ? `Do'kon: ${sourceInfo}` : "Do'kondan so'rov";
+  const mergedNote = [notePrefix, requestNote].filter(Boolean).join(" | ");
+
+  const request = await StoreReturnRequest.create({
+    productId: product._id,
+    productName: product.name,
+    productBarcode: String(product.barcode || ""),
+    unit: String(product.unit || "dona"),
+    requestedQty: qty,
+    approvedQty: 0,
+    qtyReserved: false,
+    status: "pending",
+    requestNote: mergedNote,
+    sourceRequestId,
+    sourceStoreCode,
+    sourceStoreName,
+    requestedByUserId: req.user.id,
+    requestedByUsername: requestedByUsername || "kassa",
+    requestedAt: new Date(),
+  });
+
+  return res.status(201).json({ request });
+});
+
+export const approveStoreReturnRequest = asyncHandler(async (req, res) => {
+  if (String(req.user.role || "") !== "admin") {
+    return res.status(403).json({ message: "Faqat admin tasdiqlashi mumkin" });
+  }
+
+  const request = await StoreReturnRequest.findOne({ _id: req.params.id, status: "pending" });
+  if (!request) {
+    return res.status(404).json({ message: "Kutilayotgan qaytarish so'rovi topilmadi" });
+  }
+
+  const product = await Product.findById(request.productId);
+  if (!product) {
+    return res.status(404).json({ message: "Mahsulot topilmadi" });
+  }
+
+  const qty = roundMoney(Number(request.requestedQty || 0));
+  product.quantity = roundMoney(Number(product.quantity || 0) + qty);
+  product.lastRestockedAt = new Date();
+  await product.save();
+
+  request.status = "approved";
+  request.approvedQty = qty;
+  request.decisionNote = String(req.body?.note || "").trim();
+  request.approvedByUserId = req.user.id;
+  request.approvedByUsername = String(req.user.username || "admin");
+  request.approvedAt = new Date();
+  await request.save();
+
+  return res.json({ request, product: { id: product._id, quantity: product.quantity } });
+});
+
+export const rejectStoreReturnRequest = asyncHandler(async (req, res) => {
+  if (String(req.user.role || "") !== "admin") {
+    return res.status(403).json({ message: "Faqat admin rad qilishi mumkin" });
+  }
+
+  const request = await StoreReturnRequest.findOne({ _id: req.params.id, status: "pending" });
+  if (!request) {
+    return res.status(404).json({ message: "Kutilayotgan qaytarish so'rovi topilmadi" });
+  }
+
+  request.status = "rejected";
+  request.decisionNote = String(req.body?.note || "").trim();
+  request.approvedByUserId = req.user.id;
+  request.approvedByUsername = String(req.user.username || "admin");
+  request.approvedAt = new Date();
+  request.approvedQty = 0;
+  await request.save();
+
+  return res.json({ request });
 });
 
 export const createProduct = asyncHandler(async (req, res) => {

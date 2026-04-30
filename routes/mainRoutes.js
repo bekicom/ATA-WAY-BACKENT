@@ -10,10 +10,14 @@ import {
 import { getOverview } from "../controllers/dashboardController.js";
 import {
   acceptStoreReturn,
+  approveStoreReturnRequest,
+  createExternalStoreReturn,
   createProduct,
   deleteProduct,
   getProductById,
+  listStoreReturns,
   listProducts,
+  rejectStoreReturnRequest,
   restockProduct,
   updateProduct,
 } from "../controllers/productController.js";
@@ -84,9 +88,13 @@ router.get("/sections/:id/allocations", authMiddleware, getSectionAllocations);
 router.put("/sections/:id/allocations", authMiddleware, setSectionAllocations);
 
 router.get("/products", authMiddleware, listProducts);
-router.get("/products/:id", authMiddleware, getProductById);
+router.get("/products/store-returns", authMiddleware, listStoreReturns);
+router.post("/products/store-returns/external", authMiddleware, createExternalStoreReturn);
+router.post("/products/store-returns/:id/approve", authMiddleware, approveStoreReturnRequest);
+router.post("/products/store-returns/:id/reject", authMiddleware, rejectStoreReturnRequest);
 router.post("/products", authMiddleware, createProduct);
 router.post("/products/accept-store-return", authMiddleware, acceptStoreReturn);
+router.get("/products/:id", authMiddleware, getProductById);
 router.post("/products/:id/restock", authMiddleware, restockProduct);
 router.put("/products/:id", authMiddleware, updateProduct);
 router.delete("/products/:id", authMiddleware, deleteProduct);
