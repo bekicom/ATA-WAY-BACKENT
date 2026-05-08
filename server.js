@@ -14,7 +14,7 @@ const port = Number(process.env.PORT || 4100);
 const mongoUri =
   process.env.MONGO_URI || "mongodb://127.0.0.1:27017/kiyim_dokon_sklad";
 
-app.use(cors());
+app.use(cors({ maxAge: 86400 }));
 app.use(express.json({ limit: "10mb" }));
 
 app.get("/health", (_req, res) => {
